@@ -1,0 +1,63 @@
+CREATE OR REPLACE FUNCTION generate_edges(n INTEGER, e INTEGER) 
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+	node INTEGER;
+	current INTEGER;
+	rand_node INTEGER;
+	seen INTEGER[];
+	a INTEGER[];
+	b INTEGER[];
+BEGIN
+
+	DROP TABLE IF EXISTS edges;
+	CREATE TABLE IF NOT EXISTS edges (
+		node1 integer,
+		node2 integer
+	);
+
+	CREATE EXTENSION IF NOT EXISTS intarray;
+	a = sort(array(SELECT (random() * (n - 1))::int FROM generate_Series(1, e)));
+	b = array_remove(array(SELECT generate_series(0, (n-1))), current);
+
+	current := a[0];
+	FOREACH node IN ARRAY a 
+	LOOP
+		IF node = current
+		THEN
+			rand_node := b[floor(random() * array_length(b, 1) + 1)];
+			b = array_remove(b, rand_node);
+			INSERT INTO edges(node1, node2) VALUES (node, rand_node);
+		ELSE
+			current := node;
+			seen = array(SELECT node1 FROM edges WHERE node2 = current);
+			b = array(SELECT unnest(array(select generate_series(0, (n-1)))) EXCEPT SELECT unnest(seen || current));
+			rand_node := b[floor(random() * array_length(b, 1) + 1)];
+			b = array_remove(b, rand_node);
+			INSERT INTO edges(node1, node2) VALUES (node, rand_node);
+		END IF;
+	END LOOP;
+END; $$;
+
+CREATE OR REPLACE FUNCTION max_node_count() 
+RETURNS TABLE (node INTEGER, n BIGINT)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+	CREATE TABLE counts AS
+		SELECT vertex, count(*) FROM (SELECT node1 AS vertex FROM edges
+		UNION ALL
+		SELECT node2 AS vertex FROM edges) counts
+		GROUP BY vertex;
+
+	RETURN QUERY SELECT vertex, count 
+	FROM counts
+	WHERE count =
+	(
+  		SELECT MAX(count)
+  		FROM counts
+	);
+
+	DROP TABLE counts;
+END; $$;
